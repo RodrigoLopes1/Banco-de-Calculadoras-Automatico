@@ -18,6 +18,9 @@ const char* password = "12345678";
 // Google Apps Script
 const String scriptID = "AKfycbw6yPzpHzBGF79_2UzTs-7BHshAJwY94ejbvaRMp_kfpaJr7agKWIdLdwdd9mxnMLk";
 
+String lastUid = "";
+
+
 // Keypad
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -64,6 +67,20 @@ void loop() {
       } else if (isDigit(key)) {
         pessoaID += key;
         Serial.print(key);
+
+        //digitalWrite(LED_PIN, LOW);
+        digitalWrite(BUZZER_PIN, HIGH);
+        delay(200);
+        //digitalWrite(LED_PIN, HIGH);
+        digitalWrite(BUZZER_PIN, LOW);
+
+
+
+
+
+
+
+
         if (pessoaID.length() >= 8) {
           Serial.println("\nAproxime a calculadora (cartão RFID)...");
           esperandoCartao = true;
@@ -76,12 +93,39 @@ void loop() {
       rfid.PICC_HaltA();
       rfid.PCD_StopCrypto1();
 
-      Serial.print("Cartão lido: ");
-      Serial.println(uid);
-      sendData("Calculadora-emprestada", pessoaID + "," + uid);
 
+      //if (uid != lastUid) {
+      String numero = getUserName(uid);
+      if (numero != "") {
+        Serial.print("Cartão reconhecido: ");
+        digitalWrite(LED_PIN, LOW);
+        digitalWrite(BUZZER_PIN, HIGH);
+        delay(200);
+        digitalWrite(LED_PIN, HIGH);
+        digitalWrite(BUZZER_PIN, LOW);
+        Serial.println(numero);
+        sendData("Calculadora-emprestada", pessoaID, numero);
+        digitalWrite(LED_PIN, LOW);
+        digitalWrite(BUZZER_PIN, HIGH);
+        delay(200);
+        digitalWrite(LED_PIN, HIGH);
+        digitalWrite(BUZZER_PIN, LOW);
+      } else {
+        Serial.print("Cartão não cadastrado: ");
+        Serial.println(uid);
+      }
       pessoaID = "";
       esperandoCartao = false;
+      lastUid = uid;
+    //}
+
+/*
+      Serial.print("Cartão lido: ");
+      Serial.println(uid);
+      sendData("Calculadora-emprestada", pessoaID, uid);
+
+      pessoaID = "";
+      esperandoCartao = false;*/
     }
   }
 }
@@ -97,10 +141,23 @@ String uidToString(byte *buffer, byte bufferSize) {
   return result;
 }
 
-void sendData(String nome, String valor) {
+
+String getUserName(String uid) {
+  if (uid == "04-28-6C-52-DA-61-80") return "23";
+  else if (uid == "04-2C-6C-52-DA-61-80") return "26";
+  else if (uid == "04-AF-68-52-DA-61-80") return "3";
+  else if (uid == "04-B2-67-52-DA-61-80") return "20";
+  else if (uid == "04-D2-66-52-DA-61-80") return "21";
+  else return "";
+}
+
+
+
+void sendData(String nome, String valor, String udi) {
   if ((WiFi.status() == WL_CONNECTED)) {
     HTTPClient http;
-    String url = "https://script.google.com/macros/s/" + scriptID + "/exec?nome=" + nome + "&valor=" + valor;
+    String url = "https://script.google.com/macros/s/" + scriptID + "/exec?nome=" + nome + "&valor=" + valor + "&uid=" + udi;
+
     Serial.println("Enviando dados: " + url);
     
     http.begin(url);
