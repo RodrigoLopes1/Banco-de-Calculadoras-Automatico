@@ -1,15 +1,24 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Keypad.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <Keypad.h>
 
-// --- RFID ---
-#define SS_PIN 5
-#define RST_PIN 22
+#define SS_PIN 21      // SDA do RFID
+#define RST_PIN 22     // RST do RFID
+#define LED_PIN 2
+#define BUZZER_PIN 4
+
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// --- Teclado 4x4 ---
+// Wi-Fi
+const char* ssid = "ABCDEF";
+const char* password = "12345678";
+
+// Google Apps Script
+const String scriptID = "AKfycbw6yPzpHzBGF79_2UzTs-7BHshAJwY94ejbvaRMp_kfpaJr7agKWIdLdwdd9mxnMLk";
+
+// Keypad
 const byte ROWS = 4;
 const byte COLS = 4;
 char keys[ROWS][COLS] = {
@@ -18,47 +27,65 @@ char keys[ROWS][COLS] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
-byte rowPins[ROWS] = {32, 33, 25, 26};  // L1-L4
-byte colPins[COLS] = {27, 14, 12, 13};  // C1-C4
+byte rowPins[ROWS] = {13, 12, 14, 27}; // Ajuste os pinos conforme necessário
+byte colPins[COLS] = {26, 25, 33, 32}; // Ajuste os pinos conforme necessário
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-// --- WiFi ---
-const char* ssid = "ABCDEF";
-const char* password = "12345678";
+String pessoaID = "";
+bool esperandoCartao = false;
 
-// --- App Script ---
-const String appscriptID = "AKfycbw6yPzpHzBGF79_2UzTs-7BHshAJwY94ejbvaRMp_kfpaJr7agKWIdLdwdd9mxnMLk";
-const String host = "https://script.google.com/macros/s/" + appscriptID + "/exec";
-
-// --- LED e Buzzer ---
-#define LED_PIN 2
-#define BUZZER 4
-
-// --- Variáveis de controle ---
-String codigoPessoa = "";
-bool aguardandoCodigo = false;
-bool aguardandoCartao = false;
-
-// --- Setup ---
 void setup() {
   Serial.begin(115200);
+  SPI.begin(); 
+  rfid.PCD_Init(); 
 
   pinMode(LED_PIN, OUTPUT);
-  pinMode(BUZZER, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
 
-  SPI.begin();  // SCK=18, MISO=19, MOSI=23
-  rfid.PCD_Init();
-
+  Serial.println("Conectando ao Wi-Fi...");
   WiFi.begin(ssid, password);
-  Serial.print("Conectando ao WiFi");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
     Serial.print(".");
+    delay(500);
   }
-  Serial.println("\nWiFi conectado!");
+  Serial.println("\nWi-Fi conectado.");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
 }
 
-// --- UID formatado ---
+void loop() {
+  if (!esperandoCartao) {
+    char key = keypad.getKey();
+    if (key) {
+      if (key == 'A') {
+        pessoaID = "";
+        Serial.println("Digite o código da pessoa (8 dígitos):");
+      } else if (isDigit(key)) {
+        pessoaID += key;
+        Serial.print(key);
+        if (pessoaID.length() >= 8) {
+          Serial.println("\nAproxime a calculadora (cartão RFID)...");
+          esperandoCartao = true;
+        }
+      }
+    }
+  } else {
+    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+      String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
+      rfid.PICC_HaltA();
+      rfid.PCD_StopCrypto1();
+
+      Serial.print("Cartão lido: ");
+      Serial.println(uid);
+      sendData("Calculadora-emprestada", pessoaID + "," + uid);
+
+      pessoaID = "";
+      esperandoCartao = false;
+    }
+  }
+}
+
 String uidToString(byte *buffer, byte bufferSize) {
   String result = "";
   for (byte i = 0; i < bufferSize; i++) {
@@ -70,63 +97,24 @@ String uidToString(byte *buffer, byte bufferSize) {
   return result;
 }
 
-// --- Envio para planilha ---
 void sendData(String nome, String valor) {
-  if (WiFi.status() == WL_CONNECTED) {
+  if ((WiFi.status() == WL_CONNECTED)) {
     HTTPClient http;
-    String url = host + "?nome=" + nome + "&valor=" + valor;
+    String url = "https://script.google.com/macros/s/" + scriptID + "/exec?nome=" + nome + "&valor=" + valor;
+    Serial.println("Enviando dados: " + url);
+    
     http.begin(url);
     int httpCode = http.GET();
-    Serial.print("Resposta HTTP: ");
-    Serial.println(httpCode);
+    String payload = http.getString();
+    Serial.println("Resposta: " + payload);
     http.end();
 
-    digitalWrite(LED_PIN, HIGH);
-    digitalWrite(BUZZER, HIGH);
-    delay(150);
     digitalWrite(LED_PIN, LOW);
-    digitalWrite(BUZZER, LOW);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(200);
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, LOW);
   } else {
-    Serial.println("WiFi desconectado!");
-  }
-}
-
-// --- Loop principal ---
-void loop() {
-  char key = keypad.getKey();
-
-  if (key) {
-    Serial.print("Tecla pressionada: ");
-    Serial.println(key);
-    if (key == 'A') {
-      codigoPessoa = "";
-      aguardandoCodigo = true;
-      aguardandoCartao = false;
-      Serial.println("Digite o código da pessoa (8 dígitos):");
-    } else if (aguardandoCodigo) {
-      if (key >= '0' && key <= '9') {
-        codigoPessoa += key;
-        Serial.println("Código parcial: " + codigoPessoa);
-        if (codigoPessoa.length() == 8) {
-          Serial.println("Código completo inserido: " + codigoPessoa);
-          aguardandoCodigo = false;
-          aguardandoCartao = true;
-          Serial.println("Aproxime a calculadora (cartão RFID)...");
-        }
-      } else {
-        Serial.println("Somente números são válidos.");
-      }
-    }
-  }
-
-  // Leitura RFID
-  if (aguardandoCartao && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-    String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
-    rfid.PICC_HaltA();
-    rfid.PCD_StopCrypto1();
-
-    Serial.println("Cartão lido: " + uid);
-    sendData("Calculadora-emprestada", codigoPessoa + "," + uid);
-    aguardandoCartao = false;
+    Serial.println("Erro: WiFi não conectado");
   }
 }
