@@ -36,6 +36,7 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 String pessoaID = "";
 bool esperandoCartao = false;
+bool processoIniciado = false;
 
 void setup() {
   Serial.begin(115200);
@@ -58,77 +59,59 @@ void setup() {
 }
 
 void loop() {
-  if (!esperandoCartao) {
-    char key = keypad.getKey();
-    if (key) {
-      if (key == 'A') {
-        pessoaID = "";
-        Serial.println("Digite o código da pessoa (8 dígitos):");
-      } else if (isDigit(key)) {
-        pessoaID += key;
-        Serial.print(key);
+  char key = keypad.getKey();
 
-        //digitalWrite(LED_PIN, LOW);
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(200);
-        //digitalWrite(LED_PIN, HIGH);
-        digitalWrite(BUZZER_PIN, LOW);
-
-
-
-
-
-
-
-
-        if (pessoaID.length() >= 8) {
-          Serial.println("\nAproxime a calculadora (cartão RFID)...");
-          esperandoCartao = true;
-        }
-      }
+  // Esperando apertar 'A' para iniciar o processo
+  if (!processoIniciado) {
+    if (key == 'A') {
+      processoIniciado = true;
+      pessoaID = "";
+      Serial.println("Início do processo. Digite o código da pessoa (8 dígitos):");
     }
-  } else {
+    return; // Não faz mais nada até que 'A' seja pressionado
+  }
+
+  // Coletando os 8 dígitos
+  if (!esperandoCartao && key && isDigit(key)) {
+    pessoaID += key;
+    Serial.print(key);
+
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(200);
+    digitalWrite(BUZZER_PIN, LOW);
+
+    if (pessoaID.length() >= 8) {
+      Serial.println("\nAproxime a calculadora (cartão RFID)...");
+      esperandoCartao = true;
+    }
+  }
+
+  // Esperando cartão RFID
+  if (esperandoCartao) {
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
       String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
       rfid.PICC_HaltA();
       rfid.PCD_StopCrypto1();
 
-
-      //if (uid != lastUid) {
       String numero = getUserName(uid);
       if (numero != "") {
         Serial.print("Cartão reconhecido: ");
-        digitalWrite(LED_PIN, LOW);
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(200);
-        digitalWrite(LED_PIN, HIGH);
-        digitalWrite(BUZZER_PIN, LOW);
         Serial.println(numero);
         sendData("Calculadora-emprestada", pessoaID, numero);
-        digitalWrite(LED_PIN, LOW);
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(200);
-        digitalWrite(LED_PIN, HIGH);
-        digitalWrite(BUZZER_PIN, LOW);
       } else {
         Serial.print("Cartão não cadastrado: ");
         Serial.println(uid);
       }
+
+      // Resetando tudo para próxima vez
       pessoaID = "";
       esperandoCartao = false;
+      processoIniciado = false;
       lastUid = uid;
-    //}
-
-/*
-      Serial.print("Cartão lido: ");
-      Serial.println(uid);
-      sendData("Calculadora-emprestada", pessoaID, uid);
-
-      pessoaID = "";
-      esperandoCartao = false;*/
     }
   }
 }
+
 
 String uidToString(byte *buffer, byte bufferSize) {
   String result = "";
