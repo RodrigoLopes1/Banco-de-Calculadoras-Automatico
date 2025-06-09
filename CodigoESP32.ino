@@ -1,138 +1,167 @@
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecure.h>
+@@ -3,9 +3,17 @@
+#include <Keypad.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <Keypad.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define SS_PIN 21      // SDA do RFID
+#define RST_PIN 22     // RST do RFID
+// LCD I2C
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
+
 
 #define SS_PIN 15
-#define RST_PIN 16
+#define RST_PIN 5    // RST do RFID
 #define LED_PIN 2
-#define BUZZER 4
+#define BUZZER_PIN 4
 
-MFRC522 rfid(SS_PIN, RST_PIN);
-WiFiClientSecure client;
-
-const char* ssid = "ABCDEF";
-const char* password = "12345678";
-const char* host = "script.google.com";
-const int httpsPort = 443;
-
-String appscriptID = "AKfycbw6yPzpHzBGF79_2UzTs-7BHshAJwY94ejbvaRMp_kfpaJr7agKWIdLdwdd9mxnMLk";
-
-// Teclado 4x4
-const byte ROWS = 4;
-const byte COLS = 4;
-char keys[ROWS][COLS] = {
-  {'1','2','3','A'},
-  {'4','5','6','B'},
-  {'7','8','9','C'},
-  {'*','0','#','D'}
-};
-byte rowPins[ROWS] = {5, 4, 0, 2};  // Ajuste conforme sua conexão
-byte colPins[COLS] = {14, 12, 13, 15}; // Ajuste conforme sua conexão
-Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
-
-String userCode = "";
+@@ -37,6 +45,7 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+String pessoaID = "";
 bool esperandoCartao = false;
+bool processoIniciado = false;
+bool modoDevolucao = false;
 
 void setup() {
   Serial.begin(115200);
-  SPI.begin();
-  rfid.PCD_Init();
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(BUZZER, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-
-  Serial.println("Conectando-se ao WiFi...");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LED_PIN, LOW);
-    delay(250);
-    digitalWrite(LED_PIN, HIGH);
-    delay(250);
-    Serial.print(".");
-  }
-
-  digitalWrite(LED_PIN, HIGH);
-  Serial.println("\nConectado ao WiFi!");
+@@ -56,23 +65,46 @@ void setup() {
+  Serial.println("\nWi-Fi conectado.");
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
 
-  client.setInsecure();
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Sistema pronto");
+  lcd.setCursor(0, 1);
+  lcd.print("Pressione A ou B");
+
+
+}
+void mostrarMensagem(String linha1, String linha2 = "") {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(linha1.substring(0, 16)); // Linha 1
+  lcd.setCursor(0, 1);
+  lcd.print(linha2.substring(0, 16)); // Linha 2
 }
 
-String uidToString(byte *buffer, byte bufferSize) {
-  String result = "";
-  for (byte i = 0; i < bufferSize; i++) {
-    if (i > 0) result += "-";
-    if (buffer[i] < 0x10) result += "0";
-    result += String(buffer[i], HEX);
-  }
-  result.toUpperCase();
-  return result;
-}
-
-void sendData(String nome, String valor) {
-  Serial.println("======================================================");
-  Serial.print("Conectando a: ");
-  Serial.println(host);
-  digitalWrite(LED_PIN, LOW);
-  digitalWrite(BUZZER, HIGH);
-  delay(200);
-  digitalWrite(LED_PIN, HIGH);
-  digitalWrite(BUZZER, LOW);
-
-  if (!client.connect(host, httpsPort)) {
-    Serial.println("Falha na conexão");
-    return;
-  }
-
-  String url = "/macros/s/" + appscriptID + "/exec?nome=" + nome + "&valor=" + valor;
-  Serial.print("Enviando URL: ");
-  Serial.println(url);
-
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + host + "\r\n" +
-               "User-Agent: ESP8266\r\n" +
-               "Connection: close\r\n\r\n");
-
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line == "\r") break;
-  }
-
-  String line = client.readStringUntil('\n');
-  Serial.println("Resposta:");
-  Serial.println(line);
-  Serial.println("==========");
-}
 
 void loop() {
   char key = keypad.getKey();
 
-  if (!esperandoCartao) {
+  // Esperando apertar 'A' para iniciar o processo
+  if (!processoIniciado) {
+  // Espera iniciar processo de empréstimo ou devolução
+  if (!processoIniciado && !modoDevolucao) {
     if (key == 'A') {
-      Serial.println("Início do empréstimo. Digite o código do aluno:");
-      userCode = "";
-    } else if (key && isDigit(key)) {
-      userCode += key;
-      Serial.print("*"); // Feedback
-      if (userCode.length() == 8) {
-        Serial.println("\nCódigo recebido. Aproxime a calculadora.");
-        esperandoCartao = true;
-      }
+      processoIniciado = true;
+      pessoaID = "";
+      Serial.println("Início do processo. Digite o código da pessoa (8 dígitos):");
+      Serial.println("Início do empréstimo. Digite o código da pessoa (8 dígitos):");
+      mostrarMensagem("Emprestimo", "Digite ID (8)");
+    } else if (key == 'B') {
+      modoDevolucao = true;
+      Serial.println("Modo devolução. Aproxime a calculadora (cartão RFID)...");
+      mostrarMensagem("Devolucao", "Aproxime calc.");
     }
-  } else {
+    return; // Não faz mais nada até que 'A' seja pressionado
+    return;
+  }
+
+  // Coletando os 8 dígitos
+  if (!esperandoCartao && key && isDigit(key)) {
+  // Processo de empréstimo
+  if (processoIniciado && !esperandoCartao && key && isDigit(key)) {
+    pessoaID += key;
+    Serial.print(key);
+
+@@ -82,37 +114,70 @@ void loop() {
+
+    if (pessoaID.length() >= 8) {
+      Serial.println("\nAproxime a calculadora (cartão RFID)...");
+      mostrarMensagem("Emprestimo", "Aproxime calc.");
+      esperandoCartao = true;
+    }
+  }
+
+  // Esperando cartão RFID
+  if (esperandoCartao) {
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-      String rfidCode = uidToString(rfid.uid.uidByte, rfid.uid.size);
+      String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
       rfid.PICC_HaltA();
       rfid.PCD_StopCrypto1();
+  // Leitura de RFID
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
 
-      Serial.println("Cartão lido:");
-      Serial.println(rfidCode);
-      sendData("Calculadora-emprestada", userCode + "-" + rfidCode);
+    String numero = getUserName(uid);
 
+    if (modoDevolucao) {
+      if (numero != "") {
+        Serial.print("Calculadora devolvida: ");
+        Serial.println(numero);
+        mostrarMensagem("Devolucao OK", "Enviando...");
+        sendData("Calculadora-devolvida", "-", numero);
+      } else {
+        Serial.print("Cartão não cadastrado: ");
+        Serial.println(uid);
+        mostrarMensagem("Cartao nao", "cadastrado");
+        delay(2000);
+      }
+
+      // Resetar estados
+      modoDevolucao = false;
+      processoIniciado = false;
       esperandoCartao = false;
+      pessoaID = "";
+
+      String numero = getUserName(uid);
+      mostrarMensagem("Sistema pronto", "Pressione A ou B");
     }
+
+    else if (processoIniciado && esperandoCartao) {
+      if (numero != "") {
+        Serial.print("Cartão reconhecido: ");
+        Serial.println(numero);
+        mostrarMensagem("Emprestimo OK", "Enviando...");
+        sendData("Calculadora-emprestada", pessoaID, numero);
+      } else {
+        Serial.print("Cartão não cadastrado: ");
+        Serial.println(uid);
+        mostrarMensagem("Cartao nao", "cadastrado");
+        delay(2000);
+      }
+
+      // Resetando tudo para próxima vez
+      pessoaID = "";
+      esperandoCartao = false;
+      // Resetar estados
+      processoIniciado = false;
+      lastUid = uid;
+      esperandoCartao = false;
+      modoDevolucao = false;
+      pessoaID = "";
+
+      mostrarMensagem("Sistema pronto", "Pressione A ou B");
+    }
+
+
+    lastUid = uid;
+  }
+}
+
+
+
+String uidToString(byte *buffer, byte bufferSize) {
+  String result = "";
+  for (byte i = 0; i < bufferSize; i++) {
+@@ -158,3 +223,6 @@ void sendData(String nome, String valor, String udi) {
+    Serial.println("Erro: WiFi não conectado");
   }
 }
