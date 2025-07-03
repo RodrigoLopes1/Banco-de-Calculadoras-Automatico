@@ -49,6 +49,7 @@ bool processoIniciado = false;
 bool modoDevolucao = false;
 bool aguardandoConfirmacao = false;
 bool modoCadastroRFID = false; 
+bool aguardandoConfirmacaoEmprestimoDuplo = false;
 
 void setup() {
   Serial.begin(115200);
@@ -202,9 +203,10 @@ void mostrarMensagem(String linha1, String linha2 = "") {
 void loop() {
   char key = keypad.getKey();
 
-  // --- PARTE 1: Menu inicial (Com a nova opção 'D') ---
-  if (!processoIniciado && !modoDevolucao && !modoCadastroRFID) { // Adicionado '!modoCadastroRFID' por segurança
-    if (key == 'A' || key == 'B' || key == 'D') { // >>> Adicionada a tecla 'D'
+  // --- PARTE 1: Menu inicial ---
+  // Condição para garantir que só roda se nenhum processo estiver ativo
+  if (!processoIniciado && !modoDevolucao && !modoCadastroRFID) {
+    if (key == 'A' || key == 'B' || key == 'D') {
       digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
       if (key == 'A') {
         processoIniciado = true;
@@ -213,118 +215,135 @@ void loop() {
       } else if (key == 'B') {
         modoDevolucao = true;
         mostrarMensagem("Devolucao", "Aproxime calc.");
-      } else if (key == 'D') { // >>> NOVO BLOCO PARA O MODO DE CADASTRO
+      } else if (key == 'D') {
         modoCadastroRFID = true;
         mostrarMensagem("Passe a", "calculadora");
       }
     }
-    return;
   }
 
-  // --- PARTE 2: Processo de empréstimo (Não muda) ---
+  // --- PARTE 2: Processo de empréstimo (ESTRUTURA CORRIGIDA) ---
   if (processoIniciado) {
-    if (!esperandoCartao && !aguardandoConfirmacao && key) {
-      if (isDigit(key) && pessoaID.length() < 10) {
-        pessoaID += key;
+    
+    // ESTADO 1: Aguardando confirmação do empréstimo duplo (MAIOR PRIORIDADE)
+    if (aguardandoConfirmacaoEmprestimoDuplo) {
+      if (key) { // Se qualquer tecla for pressionada
         digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
-        mostrarMensagem("NUSP:", pessoaID);
-      } 
-      else if (key == 'C' && pessoaID.length() > 0) {
-        pessoaID.remove(pessoaID.length() - 1);
-        digitalWrite(BUZZER_PIN, HIGH); delay(50); digitalWrite(BUZZER_PIN, LOW);
-        mostrarMensagem("NUSP:", pessoaID);
-      }
-      else if (key == '#' && pessoaID.length() > 0) {
-        digitalWrite(BUZZER_PIN, HIGH); delay(80); digitalWrite(BUZZER_PIN, LOW); delay(60);
-        digitalWrite(BUZZER_PIN, HIGH); delay(80); digitalWrite(BUZZER_PIN, LOW);
-        
-        mostrarMensagem("Verificando NUSP", "Aguarde...");
-        String nomeVerificado;
-        if (verificarNUSP(pessoaID, nomeVerificado)) {
-          mostrarMensagem("Verificando se", "ha emprestimo...");
-          String statusEmprestimo = verificarEmprestimoAtivo(pessoaID);
-
-          if (statusEmprestimo.indexOf("DISPONIVEL") != -1) {
-            aguardandoConfirmacao = true;
-            mostrarMensagem("Emprestar para:", nomeVerificado);
-            delay(2500);
-            mostrarMensagem("A: Confirma", "B: Cancela");
-          } else if (statusEmprestimo.indexOf("EMPRESTADO") != -1) {
-            mostrarMensagem("NUSP COM", "EMPRESTIMO");
-            digitalWrite(BUZZER_PIN, HIGH); delay(600); digitalWrite(BUZZER_PIN, LOW);
-            delay(2500);
-            processoIniciado = false;
-            pessoaID = "";
-            mostrarMensagem("Sistema pronto", "Pressione A ou B");
-          } else {
-            mostrarMensagem("Erro ao checar", "emprestimos.");
-            digitalWrite(BUZZER_PIN, HIGH); delay(500); digitalWrite(BUZZER_PIN, LOW);
-            delay(2000);
-            processoIniciado = false;
-            pessoaID = "";
-            mostrarMensagem("Sistema pronto", "Pressione A ou B");
-          }
-        } else {
-          mostrarMensagem("NUSP nao", "cadastrado");
-          digitalWrite(BUZZER_PIN, HIGH); delay(500); digitalWrite(BUZZER_PIN, LOW);
+        if (key == 'A') {
+          // Usuário escolheu continuar mesmo assim
+          aguardandoConfirmacaoEmprestimoDuplo = false;
+          esperandoCartao = true; // Pula direto para a espera do cartão
+          mostrarMensagem("Confirmado!", "Aproxime calc.");
+        } else if (key == 'B') {
+          // Usuário escolheu cancelar
+          mostrarMensagem("Operacao", "Cancelada");
           delay(2000);
+          // Reseta tudo
           processoIniciado = false;
+          aguardandoConfirmacaoEmprestimoDuplo = false;
           pessoaID = "";
           mostrarMensagem("Sistema pronto", "Pressione A ou B");
         }
       }
-      return;
     }
 
-    if (aguardandoConfirmacao && key) {
-      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
-      if (key == 'A') {
-        aguardandoConfirmacao = false;
-        esperandoCartao = true;
-        mostrarMensagem("Confirmado!", "Aproxime calc.");
-      } else if (key == 'B') {
-        mostrarMensagem("Operacao", "Cancelada");
-        delay(2000);
-        processoIniciado = false;
-        aguardandoConfirmacao = false;
-        pessoaID = "";
-        mostrarMensagem("Sistema pronto", "Pressione A ou B");
+    // ESTADO 2: Aguardando confirmação do empréstimo normal
+    else if (aguardandoConfirmacao) {
+      if (key) {
+        digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
+        if (key == 'A') {
+          aguardandoConfirmacao = false;
+          esperandoCartao = true;
+          mostrarMensagem("Confirmado!", "Aproxime calc.");
+        } else if (key == 'B') {
+          mostrarMensagem("Operacao", "Cancelada");
+          delay(2000);
+          // Reseta tudo
+          processoIniciado = false;
+          aguardandoConfirmacao = false;
+          pessoaID = "";
+          mostrarMensagem("Sistema pronto", "Pressione A ou B");
+        }
       }
-      return;
+    }
+
+    // ESTADO 3: Aguardando digitação do NUSP (estado inicial do processo)
+    else if (!esperandoCartao) {
+        if (key) { // Apenas processa se uma tecla foi pressionada
+            if (isDigit(key) && pessoaID.length() < 10) {
+              pessoaID += key;
+              digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
+              mostrarMensagem("NUSP:", pessoaID);
+            } 
+            else if (key == 'C' && pessoaID.length() > 0) {
+              pessoaID.remove(pessoaID.length() - 1);
+              digitalWrite(BUZZER_PIN, HIGH); delay(50); digitalWrite(BUZZER_PIN, LOW);
+              mostrarMensagem("NUSP:", pessoaID);
+            }
+            else if (key == '#' && pessoaID.length() > 0) {
+              digitalWrite(BUZZER_PIN, HIGH); delay(80); digitalWrite(BUZZER_PIN, LOW); delay(60);
+              digitalWrite(BUZZER_PIN, HIGH); delay(80); digitalWrite(BUZZER_PIN, LOW);
+              
+              mostrarMensagem("Verificando NUSP", "Aguarde...");
+              String nomeVerificado;
+              if (verificarNUSP(pessoaID, nomeVerificado)) {
+                mostrarMensagem("Verificando se", "ha emprestimo...");
+                String statusEmprestimo = verificarEmprestimoAtivo(pessoaID);
+
+                if (statusEmprestimo.indexOf("DISPONIVEL") != -1) {
+                  aguardandoConfirmacao = true; // Vai para o ESTADO 2
+                  mostrarMensagem("Emprestar para:", nomeVerificado);
+                  delay(2500);
+                  mostrarMensagem("A: Confirma", "B: Cancela");
+                } 
+                else if (statusEmprestimo.indexOf("EMPRESTADO") != -1) {
+                  mostrarMensagem("NUSP COM", "EMPRESTIMO");
+                  digitalWrite(BUZZER_PIN, HIGH); delay(600); digitalWrite(BUZZER_PIN, LOW);
+                  delay(2000);
+                  aguardandoConfirmacaoEmprestimoDuplo = true; // Vai para o ESTADO 1
+                  mostrarMensagem("A: Continua", "B: Cancela");
+                } else {
+                  mostrarMensagem("Erro ao checar", "emprestimos.");
+                  delay(2000);
+                  processoIniciado = false; // Reseta
+                  pessoaID = "";
+                  mostrarMensagem("Sistema pronto", "Pressione A ou B");
+                }
+              } else {
+                mostrarMensagem("NUSP nao", "cadastrado");
+                digitalWrite(BUZZER_PIN, HIGH); delay(1000); digitalWrite(BUZZER_PIN, LOW); // Bipe de 1 segundo
+                delay(2000);
+                processoIniciado = false; // Reseta
+                pessoaID = "";
+                mostrarMensagem("Sistema pronto", "Pressione A ou B");
+              }
+            }
+        }
     }
   }
 
-  // --- PARTE 3: Leitura do RFID (Com a nova lógica de cadastro) ---
-  // >>> Adicionada a condição 'modoCadastroRFID'
+  // --- PARTE 3: Leitura do RFID ---
   if ((modoDevolucao || esperandoCartao || modoCadastroRFID) && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
     String numero = getUserName(uid);
 
-    // >>> NOVO BLOCO DE LÓGICA PARA O MODO DE CADASTRO
     if (modoCadastroRFID) {
-      digitalWrite(BUZZER_PIN, HIGH); delay(200); digitalWrite(BUZZER_PIN, LOW); // Apita para confirmar a leitura
-      
+      digitalWrite(BUZZER_PIN, HIGH); delay(200); digitalWrite(BUZZER_PIN, LOW);
       Serial.println("--- MODO CADASTRO RFID ---");
       Serial.println("UID Lido: " + uid);
       Serial.println("--------------------------");
-      
       mostrarMensagem("RFID Lido!", "Verifique Serial");
-      delay(2500); // Mostra a mensagem por um tempo
-
-      // Zera os estados e volta para o menu principal
-      modoCadastroRFID = false;
+      delay(2500);
+      modoCadastroRFID = false; // Reseta o estado
       mostrarMensagem("Sistema pronto", "Pressione A ou B");
-      return; // Retorna para o início do loop imediatamente
     }
     
-    // Lógica de Devolução (Não muda)
-    if (modoDevolucao) {
+    else if (modoDevolucao) {
       if (numero != "") {
         mostrarMensagem("Devolvendo Calc:", numero);
         delay(1500);
-        
         mostrarMensagem("Registrando...", "Aguarde");
         if (sendData("Calculadora-devolvida", "-", numero)) {
           mostrarMensagem("Devolucao", "Concluida!");
@@ -333,13 +352,20 @@ void loop() {
           delay(2000);
         } else { /* ... (código de erro) ... */ }
       } else { /* ... (código de erro) ... */ }
+      
+      // Reset total dos estados após a operação
+      modoDevolucao = false;
+      processoIniciado = false;
+      esperandoCartao = false;
+      aguardandoConfirmacao = false;
+      aguardandoConfirmacaoEmprestimoDuplo = false;
+      pessoaID = "";
+      mostrarMensagem("Sistema pronto", "Pressione A ou B");
     }
-    // Lógica de Empréstimo (Não muda)
     else if (processoIniciado && esperandoCartao) {
       if (numero != "") {
         mostrarMensagem("Emprestando Calc:", numero);
         delay(1500);
-
         mostrarMensagem("Registrando...", "Aguarde");
         if (sendData("Calculadora-emprestada", pessoaID, numero)) {
           mostrarMensagem("Emprestimo", "Concluido!");
@@ -348,18 +374,19 @@ void loop() {
           delay(2000);
         } else { /* ... (código de erro) ... */ }
       } else { /* ... (código de erro) ... */ }
+      
+      // Reset total dos estados após a operação
+      modoDevolucao = false;
+      processoIniciado = false;
+      esperandoCartao = false;
+      aguardandoConfirmacao = false;
+      aguardandoConfirmacaoEmprestimoDuplo = false;
+      pessoaID = "";
+      mostrarMensagem("Sistema pronto", "Pressione A ou B");
     }
 
-    // Reset total dos estados após empréstimo/devolução
-    modoDevolucao = false;
-    processoIniciado = false;
-    esperandoCartao = false;
-    aguardandoConfirmacao = false;
-    pessoaID = "";
-    mostrarMensagem("Sistema pronto", "Pressione A ou B");
-    
+    // Comandos comuns de reset do RFID após qualquer leitura bem sucedida
     rfid.PCD_Init();
-    
     lastUid = uid;
   }
 }
