@@ -10,9 +10,7 @@
 // LCD I2C
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-
-
-
+//Pinos da placa 
 #define SS_PIN 15
 #define RST_PIN 5    // RST do RFID
 #define LED_PIN 2
@@ -20,16 +18,26 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// Wi-Fi
-const char* ssid = "ABCDEF";
-const char* password = "12345678";
+
+
+
+//-----------------------------------------------------------------------------------------------------------------
+//-------------------------------------------------Set Wifi--------------------------------------------------------
+const char* ssid = "ABCDEF";   //COLOQUE AQUI O NOME DA REDE WIFI QUE O ESP VAI SE CONECTAR 
+const char* password = "12345678"; //COLOQUE AQUI A SENHA DA REDE WIFI QUE O ESP VAI SE CONECTR-
+//-----------------------------------------------------------------------------------------------------------------
+
+
+
 
 // Google Apps Script
+// Atualizar aqui o Script ID do google, sempre que uma mudança no script for feita, esse código muda 
 const String scriptID = "AKfycby8qK4YqNirCeueu0CnYG41PLmn3DVVXBtGx08rtSmF-u8vMlRVrJTSBwbK3Pd3Eg";
 
+
+
+
 String lastUid = "";
-
-
 // Keypad
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -43,6 +51,7 @@ byte rowPins[ROWS] = {13, 12, 14, 27}; // Ajuste os pinos conforme necessário
 byte colPins[COLS] = {26, 25, 33, 32}; // Ajuste os pinos conforme necessário
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
+//Variaveis de estado 
 String pessoaID = "";
 bool esperandoCartao = false;
 bool processoIniciado = false;
@@ -434,6 +443,20 @@ String uidToString(byte *buffer, byte bufferSize) {
   return result;
 }
 
+
+//----------------------------------------------------------------------------------------------------
+//---------------------------------------Cadastro de calculadoras-------------------------------------
+//----------------------------------------------------------------------------------------------------
+/* 
+  Para cadastrar uma nova calculadora, copie o código abaixo: 
+
+      else if (uid == "RFID da calculadora") return "Numero da calculadora"
+
+  E cole logo a baixo no último espaço do else if, seguindo o padrao. 
+  Para ler o valor do RFID pode-se usar um celular com leitor ou utilizar a função de leitura do próprio sistema
+  basta apertar o botão D no sistema, enquanto estiver conectado no PC, e checar o valor impresso no monitor serial
+*/
+//----------------------------------------------------------------------------------------------------
 //AQUI QUE CADASTRA 
 String getUserName(String uid) {
   if (uid == "04-28-6C-52-DA-61-80") return "23";
@@ -446,8 +469,14 @@ String getUserName(String uid) {
   else if (uid == "06-7D-6C-FA") return "1";
   else return "";
 }
+//----------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------
 
-// Substitua sua função sendData por esta versão mais robusta:
+
+
+
+
 
 bool sendData(String nome, String valor, String udi) {
   if (WiFi.status() != WL_CONNECTED) {
