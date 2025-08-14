@@ -51,6 +51,9 @@ bool aguardandoConfirmacao = false;
 bool modoCadastroRFID = false; 
 bool aguardandoConfirmacaoEmprestimoDuplo = false;
 
+bool modoDevolucaoForcada = false;
+String calculadoraID_manual = "";
+
 void setup() {
   Serial.begin(115200);
   SPI.begin(); 
@@ -74,34 +77,32 @@ void setup() {
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Sistema pronto");
+  lcd.print("A - Emprestimo");
   lcd.setCursor(0, 1);
-  lcd.print("Pressione A ou B");
+  lcd.print("B - Devolucao");
 
 
 }
 
-bool verificarNUSP(String nusp, String &primeiroNome) {
+// Retorna: 1 para OK, 2 para BANIDO, 0 para ERRO/Não Encontrado
+int verificarNUSP(String nusp, String &primeiroNome) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi não conectado");
-    return false;
+    return 0; // ERRO
   }
 
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
 
-  String url = "https://script.google.com/macros/s/AKfycby237q04YCrFc-cQV2GEgKTUEHyAQco-QoUPicmpRjSfkpgqNnWHa5mQeiDDTENJR0UHQ/exec?nusp=" + nusp;
+  // URL do seu script de verificação de cadastro/banido
+  String url = "https://script.google.com/macros/s/AKfycbz9WPSQ2U5OE6Vnzwv7RvpDB0svIaownyCjN4iLb0s5l1-3CfxMv3O0dVyScEsRHWYanw/exec?nusp=" + nusp;
   
   http.begin(client, url);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   
   int httpCode = http.GET();
   
-  Serial.print("HTTP Code final: ");
-  Serial.println(httpCode);
-
   String payload = "";
   if (httpCode == 200) {
     WiFiClient* stream = http.getStreamPtr();
@@ -109,47 +110,35 @@ bool verificarNUSP(String nusp, String &primeiroNome) {
       payload += (char)stream->read();
     }
   }
-
-  Serial.println("Payload final: " + payload);
   http.end();
 
-  // --- MUDANÇA FINAL E DEFINITIVA ---
+  if (httpCode == 200) {
+    // Procura por "BANIDO:" ou "OK:" na resposta
+    int posBanido = payload.indexOf("BANIDO:");
+    int posOK = payload.indexOf("OK:");
 
-  // Procura por "OK:" em QUALQUER LUGAR do payload.
-  // A função indexOf retorna -1 se não encontrar.
-  int pos = payload.indexOf("OK:");
+    if (posBanido != -1) {
+      // Se encontrou "BANIDO:", extrai o nome e retorna 2
+      String temp = payload.substring(posBanido + 7);
+      int FimDoNome = -1;
+      for(int i=0; i < temp.length(); i++){ if(temp.charAt(i) == '\n' || temp.charAt(i) == '\r'){ FimDoNome = i; break; } }
+      if (FimDoNome != -1) { primeiroNome = temp.substring(0, FimDoNome); } else { primeiroNome = temp; }
+      primeiroNome.trim();
+      return 2; // STATUS BANIDO
 
-  if (httpCode == 200 && pos != -1) {
-    // Se encontrou "OK:", o NUSP é válido!
-    
-    // Pega o texto que vem depois de "OK:"
-    String temp = payload.substring(pos + 3);
-    
-    // Agora, vamos limpar o lixo do final (como o "0")
-    // Procuramos pela primeira quebra de linha ou retorno de carro
-    int FimDoNome = -1;
-    for(int i=0; i < temp.length(); i++){
-      if(temp.charAt(i) == '\n' || temp.charAt(i) == '\r'){
-        FimDoNome = i;
-        break;
-      }
+    } else if (posOK != -1) {
+      // Se encontrou "OK:", extrai o nome e retorna 1
+      String temp = payload.substring(posOK + 3);
+      int FimDoNome = -1;
+      for(int i=0; i < temp.length(); i++){ if(temp.charAt(i) == '\n' || temp.charAt(i) == '\r'){ FimDoNome = i; break; } }
+      if (FimDoNome != -1) { primeiroNome = temp.substring(0, FimDoNome); } else { primeiroNome = temp; }
+      primeiroNome.trim();
+      return 1; // STATUS OK
     }
-
-    if (FimDoNome != -1) {
-      // Se achou uma quebra de linha, pega só o texto até ali
-      primeiroNome = temp.substring(0, FimDoNome);
-    } else {
-      // Senão, usa o texto todo (por segurança)
-      primeiroNome = temp;
-    }
-    
-    primeiroNome.trim(); // Garante que não há espaços em branco
-    return true;
-
-  } else {
-    // Se não encontrou "OK:", o NUSP é inválido
-    return false;
   }
+
+  // Se nada foi encontrado ou houve erro de HTTP
+  return 0; // STATUS ERRO
 }
 
 
@@ -199,9 +188,33 @@ void mostrarMensagem(String linha1, String linha2 = "") {
   lcd.print(linha2.substring(0, 16)); // Linha 2
 }
 
-
 void loop() {
   char key = keypad.getKey();
+
+if (key == '*') {
+    Serial.println("--- OPERAÇÃO CANCELADA PELO USUÁRIO (RESET GLOBAL) ---");
+    mostrarMensagem("Operacao", "Cancelada");
+    digitalWrite(BUZZER_PIN, HIGH); delay(300); digitalWrite(BUZZER_PIN, LOW); // Um bipe longo de cancelamento
+    delay(1500);
+
+    // Reseta TODAS as variáveis de estado para voltar ao início
+    processoIniciado = false;
+    modoDevolucao = false;
+    esperandoCartao = false;
+    aguardandoConfirmacao = false;
+    aguardandoConfirmacaoEmprestimoDuplo = false;
+    modoCadastroRFID = false;
+    pessoaID = "";
+    
+    mostrarMensagem("Sistema pronto", "Pressione A ou B");
+    rfid.PCD_Init(); // Também reinicializa o leitor RFID por segurança
+    return; // Sai do loop para começar um novo ciclo limpo
+  }
+
+
+
+
+
 
   // --- PARTE 1: Menu inicial ---
   // Condição para garantir que só roda se nenhum processo estiver ativo
@@ -222,7 +235,7 @@ void loop() {
     }
   }
 
-  // --- PARTE 2: Processo de empréstimo (ESTRUTURA CORRIGIDA) ---
+  // --- PARTE 2: Processo de empréstimo ---
   if (processoIniciado) {
     
     // ESTADO 1: Aguardando confirmação do empréstimo duplo (MAIOR PRIORIDADE)
@@ -286,36 +299,53 @@ void loop() {
               
               mostrarMensagem("Verificando NUSP", "Aguarde...");
               String nomeVerificado;
-              if (verificarNUSP(pessoaID, nomeVerificado)) {
-                mostrarMensagem("Verificando se", "ha emprestimo...");
-                String statusEmprestimo = verificarEmprestimoAtivo(pessoaID);
+              int statusNUSP = verificarNUSP(pessoaID, nomeVerificado); // Nova chamada que retorna um número
 
-                if (statusEmprestimo.indexOf("DISPONIVEL") != -1) {
-                  aguardandoConfirmacao = true; // Vai para o ESTADO 2
-                  mostrarMensagem("Emprestar para:", nomeVerificado);
+              switch (statusNUSP) {
+                case 1: { // CASO OK: Usuário existe e não está banido
+                  mostrarMensagem("Verificando se", "ha emprestimo...");
+                  String statusEmprestimo = verificarEmprestimoAtivo(pessoaID);
+
+                  if (statusEmprestimo.indexOf("DISPONIVEL") != -1) {
+                    aguardandoConfirmacao = true; // Vai para o ESTADO 2
+                    mostrarMensagem("Emprestar para:", nomeVerificado);
+                    delay(2500);
+                    mostrarMensagem("A: Confirma", "B: Cancela");
+                  } 
+                  else if (statusEmprestimo.indexOf("EMPRESTADO") != -1) {
+                    mostrarMensagem("NUSP COM", "EMPRESTIMO");
+                    digitalWrite(BUZZER_PIN, HIGH); delay(600); digitalWrite(BUZZER_PIN, LOW);
+                    delay(2000);
+                    aguardandoConfirmacaoEmprestimoDuplo = true; // Vai para o ESTADO 1
+                    mostrarMensagem("A: Continua", "B: Cancela");
+                  } else {
+                    mostrarMensagem("Erro ao checar", "emprestimos.");
+                    delay(2000);
+                    processoIniciado = false; // Reseta
+                    pessoaID = "";
+                    mostrarMensagem("Sistema pronto", "Pressione A ou B");
+                  }
+                  break;
+                }
+                case 2: // CASO BANIDO: Usuário existe mas está banido
+                  mostrarMensagem("USUARIO BANIDO", nomeVerificado);
+                  digitalWrite(BUZZER_PIN, HIGH); delay(1000); digitalWrite(BUZZER_PIN, LOW);
                   delay(2500);
-                  mostrarMensagem("A: Confirma", "B: Cancela");
-                } 
-                else if (statusEmprestimo.indexOf("EMPRESTADO") != -1) {
-                  mostrarMensagem("NUSP COM", "EMPRESTIMO");
-                  digitalWrite(BUZZER_PIN, HIGH); delay(600); digitalWrite(BUZZER_PIN, LOW);
-                  delay(2000);
-                  aguardandoConfirmacaoEmprestimoDuplo = true; // Vai para o ESTADO 1
-                  mostrarMensagem("A: Continua", "B: Cancela");
-                } else {
-                  mostrarMensagem("Erro ao checar", "emprestimos.");
+                  // Reseta o processo
+                  processoIniciado = false;
+                  pessoaID = "";
+                  mostrarMensagem("Sistema pronto", "Pressione A ou B");
+                  break;
+
+                case 0: // CASO ERRO ou NÃO ENCONTRADO
+                default:
+                  mostrarMensagem("NUSP nao", "cadastrado");
+                  digitalWrite(BUZZER_PIN, HIGH); delay(500); digitalWrite(BUZZER_PIN, LOW);
                   delay(2000);
                   processoIniciado = false; // Reseta
                   pessoaID = "";
                   mostrarMensagem("Sistema pronto", "Pressione A ou B");
-                }
-              } else {
-                mostrarMensagem("NUSP nao", "cadastrado");
-                digitalWrite(BUZZER_PIN, HIGH); delay(1000); digitalWrite(BUZZER_PIN, LOW); // Bipe de 1 segundo
-                delay(2000);
-                processoIniciado = false; // Reseta
-                pessoaID = "";
-                mostrarMensagem("Sistema pronto", "Pressione A ou B");
+                  break;
               }
             }
         }
@@ -324,6 +354,8 @@ void loop() {
 
   // --- PARTE 3: Leitura do RFID ---
   if ((modoDevolucao || esperandoCartao || modoCadastroRFID) && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
+
     String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
@@ -391,7 +423,6 @@ void loop() {
   }
 }
 
-
 String uidToString(byte *buffer, byte bufferSize) {
   String result = "";
   for (byte i = 0; i < bufferSize; i++) {
@@ -403,7 +434,7 @@ String uidToString(byte *buffer, byte bufferSize) {
   return result;
 }
 
-
+//AQUI QUE CADASTRA 
 String getUserName(String uid) {
   if (uid == "04-28-6C-52-DA-61-80") return "23";
   else if (uid == "04-2C-6C-52-DA-61-80") return "26";
