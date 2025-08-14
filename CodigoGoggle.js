@@ -1,50 +1,86 @@
-function doGet(e) { 
-  Logger.log( JSON.stringify(e) );
-  var resultado = 'Ok';
-  if (e.parameter == 'undefined') {
-    resultado = 'Nenhum parâmetro';
-  }
-  else {
-    var planilhaID = '1skj_xNlBYRW0fGmlolrgmIFdTrFOagWfHlKMhOr_bi4'; 	// Spreadsheet ID
-    var planilha = SpreadsheetApp.openById(planilhaID).getActiveSheet();
-    var newRow = planilha.getLastRow() + 1;						
-    var linhaDados = [];
+function updateCalculadoras() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const logSheet = ss.getSheetByName("LOG");
+    const cadastrosSheet = ss.getSheetByName("Cadastros");
+    
+    if (!logSheet || !cadastrosSheet) {
+      throw new Error("Planilhas 'LOG' ou 'Cadastros' não encontradas!");
+    }
 
+    let controleSheet = ss.getSheetByName("Controle");
+    if (!controleSheet) {
+      controleSheet = ss.insertSheet("Controle");
+    } else {
+      controleSheet.clear();
+    }
 
-    var dtaAtual = new Date();
-    linhaDados[0] = dtaAtual; // Date in column A
-    var horaAtual = Utilities.formatDate(dtaAtual, 'America/Sao_Paulo', 'HH:mm:ss');
-    //Utilities.formatDate(Curr_Date, 'America/Sao_Paulo', 'HH:mm:ss');
-    //https://stackoverflow.com/questions/18596933/google-apps-script-formatdate-using-users-time-zone-instead-of-gmt
-    //https://joda-time.sourceforge.net/timezones.html
+    controleSheet.appendRow(["Calculadora", "Status", "NUSP", "Nome", "Tempo Empréstimo (horas)", "Última Atualização"]);
 
+    const logs = logSheet.getDataRange().getValues().filter(r => r[0]);
+    const cadastros = cadastrosSheet.getDataRange().getValues().filter(r => r[0]);
 
-    linhaDados[1] = horaAtual; // Time in column B
+    for (let calc = 1; calc <= 30; calc++) {
+      try {
+        const transacoes = logs.filter(t => t[4] == calc);
+        
+        let status = "Disponível";
+        let nusp = "";
+        let nome = "";
+        let tempo = "";
 
+        if (transacoes.length > 0) {
+          const ultima = transacoes[transacoes.length - 1];
+          const dataTexto = ultima[0];
+          const horaTexto = ultima[1];
+          status = ultima[2].includes("emprestada") ? "Emprestada" : "Disponível";
 
-    for (var param in e.parameter) {
-      Logger.log('In for loop, param=' + param);
-      var valor = stripQuotes(e.parameter[param]);
-      Logger.log(param + ':' + e.parameter[param]);
-      switch (param) {
-        case 'nome':
-          linhaDados[2] = valor; // Temperature in column C
-          resultado = 'Descrição foi inserido na coluna C'; 
-          break;
-        case 'valor':
-          linhaDados[3] = valor; // Humidity in column D
-          resultado += ' , Valor foi inserido na coluna D'; 
-          break;  
-        default:
-          resultado = "parametro nao suportado. Entre em contato com o desenvolvedor";
+          if (status === "Emprestada") {
+            nusp = ultima[3];
+
+            let dataEmprestimo = null;
+            try {
+              const [dia, mes, ano] = dataTexto.split('/');
+              const dataStr = `${mes}/${dia}/${ano} ${horaTexto}`;
+              dataEmprestimo = new Date(dataStr);
+              tempo = Math.floor((new Date() - dataEmprestimo) / (1000 * 60 * 60)) + "h";
+            } catch (e) {
+              Logger.log(`Erro ao converter data para a calculadora ${calc}: ${e.message}`);
+            }
+
+            const aluno = cadastros.find(c => c[3] == nusp);
+            nome = aluno ? aluno[2] : "Não encontrado";
+          }
+        }
+
+        controleSheet.appendRow([calc, status, nusp, nome, tempo, new Date()]);
+      } catch (e) {
+        Logger.log(`Erro ao processar a calculadora ${calc}: ${e.message}`);
       }
     }
-    Logger.log(JSON.stringify(linhaDados));
-    var newRange = planilha.getRange(newRow, 1, 1, linhaDados.length);
-    newRange.setValues([linhaDados]);
+
+    Logger.log("Atualização concluída com sucesso!");
+  } catch (e) {
+    Logger.log("Erro crítico: " + e.message);
+    SpreadsheetApp.getUi().alert("Erro: " + e.message);
   }
-  return ContentService.createTextOutput(resultado);
 }
-function stripQuotes( value ) {
-  return value.replace(/^["']|['"]$/g, "");
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
