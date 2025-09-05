@@ -18,17 +18,17 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-
-
+//-----------------------------------------------------------------------------------------------------------------
+//-------------------------------------------------Set Wifi--------------------------------------------------------
+const char* ssid_1 = "CEE";   //COLOQUE AQUI O NOME DA REDE WIFI QUE O ESP VAI SE CONECTAR 
+const char* password_1 = "C33w!fi#"; //COLOQUE AQUI A SENHA DA REDE WIFI QUE O ESP VAI SE CONECTR-
+//-----------------------------------------------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------------------------------------------
 //-------------------------------------------------Set Wifi--------------------------------------------------------
-const char* ssid = "ABCDEF";   //COLOQUE AQUI O NOME DA REDE WIFI QUE O ESP VAI SE CONECTAR 
-const char* password = "12345678"; //COLOQUE AQUI A SENHA DA REDE WIFI QUE O ESP VAI SE CONECTR-
+const char* ssid_2 = "WifiCalculadora";   //COLOQUE AQUI O NOME DA REDE WIFI QUE O ESP VAI SE CONECTAR 
+const char* password_2 = "CEEcalc123"; //COLOQUE AQUI A SENHA DA REDE WIFI QUE O ESP VAI SE CONECTR-
 //-----------------------------------------------------------------------------------------------------------------
-
-
-
 
 // Google Apps Script
 // Atualizar aqui o Script ID do google, sempre que uma mudança no script for feita, esse código muda 
@@ -59,9 +59,20 @@ bool modoDevolucao = false;
 bool aguardandoConfirmacao = false;
 bool modoCadastroRFID = false; 
 bool aguardandoConfirmacaoEmprestimoDuplo = false;
-
+bool luzDeFundoLigada = true; 
 bool modoDevolucaoForcada = false;
 String calculadoraID_manual = "";
+
+// Substitua sua função setup() por esta nova versão:
+void mostrarMensagem(String linha1, String linha2 = "") {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(linha1.substring(0, 16)); // Linha 1
+  lcd.setCursor(0, 1);
+  lcd.print(linha2.substring(0, 16)); // Linha 2
+}
+
+
 
 void setup() {
   Serial.begin(115200);
@@ -70,27 +81,64 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
 
+  lcd.init();
+  lcd.backlight();
+  
+  // --- INÍCIO DA NOVA LÓGICA DE SELEÇÃO DE REDE ---
+
+  // 1. Mostra o menu de seleção no display
+  mostrarMensagem("Rede 1: Tecla A", "Rede 2: Tecla B");
+  
+  char key = NO_KEY;
+  const char* ssidEscolhido = "";
+  const char* passwordEscolhido = "";
+
+  // 2. Espera indefinidamente até que 'A' ou 'B' seja pressionado
+  while (true) {
+    key = keypad.getKey();
+    if (key == 'A') {
+      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
+      ssidEscolhido = ssid_1;
+      passwordEscolhido = password_1;
+      mostrarMensagem("Conectando na", "Rede 1...");
+      break; // Sai do loop de seleção
+    } else if (key == 'B') {
+      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
+      ssidEscolhido = ssid_2;
+      passwordEscolhido = password_2;
+      mostrarMensagem("Conectando na", "Rede 2...");
+      break; // Sai do loop de seleção
+    }
+  }
+
+  // --- FIM DA NOVA LÓGICA ---
+
+  // 3. Inicia a conexão WiFi com as credenciais que foram escolhidas
   Serial.println("Conectando ao Wi-Fi...");
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssidEscolhido, passwordEscolhido);
+  
+  // O resto do código (LED piscando, etc.) continua como antes
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    delay(500);
+    digitalWrite(LED_PIN, HIGH);
+    delay(250);
+    digitalWrite(LED_PIN, LOW);
+    delay(250);
   }
+  
   Serial.println("\nWi-Fi conectado.");
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
 
-  lcd.init();
-  lcd.backlight();
+  digitalWrite(LED_PIN, HIGH); // Acende o LED azul permanentemente
+
+  // Mostra a mensagem final de sistema pronto
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("A - Emprestimo");
+  lcd.print("Sistema pronto");
   lcd.setCursor(0, 1);
-  lcd.print("B - Devolucao");
-
-
+  lcd.print("Pressione A ou B");
 }
 
 // Retorna: 1 para OK, 2 para BANIDO, 0 para ERRO/Não Encontrado
@@ -189,13 +237,7 @@ String verificarEmprestimoAtivo(String nusp) {
 
 
 
-void mostrarMensagem(String linha1, String linha2 = "") {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(linha1.substring(0, 16)); // Linha 1
-  lcd.setCursor(0, 1);
-  lcd.print(linha2.substring(0, 16)); // Linha 2
-}
+
 
 void loop() {
   char key = keypad.getKey();
@@ -459,16 +501,35 @@ String uidToString(byte *buffer, byte bufferSize) {
 //----------------------------------------------------------------------------------------------------
 //AQUI QUE CADASTRA 
 String getUserName(String uid) {
-  if (uid == "04-28-6C-52-DA-61-80") return "23";
-  else if (uid == "04-2C-6C-52-DA-61-80") return "26";
-  //else if (uid == "04-AF-68-52-DA-61-80") return "3"; 
-  else if (uid == "04-B2-67-52-DA-61-80") return "20";
-  else if (uid == "04-D2-66-52-DA-61-80") return "21";
-  else if (uid == "04-30-6C-52-DA-61-80") return "24";
-  else if (uid == "04-51-6C-52-DA-61-80") return "3";
+  if (uid == "00") return "1";
+  //else if (uid == "perdida            ") return "9";
+  //else if (uid == "emprestada        ") return "10";
+  //else if (uid == "perdida           ") return "11";
+  else if (uid == "04-74-6D-52-DA-61-80") return "12";
+  else if (uid == "04-35-6C-52-DA-61-80") return "13";
+  else if (uid == "04-39-6C-52-DA-61-80") return "14";
+  else if (uid == "04-CD-66-52-DA-61-80") return "15";
+  else if (uid == "04-C1-66-52-DA-61-80") return "16";
+  //else if (uid == "perdida           ") return "17";
+  else if (uid == "04-C5-66-52-DA-61-80") return "18";
+  else if (uid == "04-92-6B-52-DA-61-80") return "19";
+  else if (uid == "04-5C-6D-52-DA-61-80") return "20";
+  else if (uid == "04-8A-6B-52-DA-61-80") return "21";
+  else if (uid == "04-C9-66-52-DA-61-80") return "22";
+  //else if (uid == "emprestada        ") return "23";
+  else if (uid == "04-BD-66-52-DA-61-80") return "24";
+  //else if (uid == "perdida           ") return "25";
+  //else if (uid == "emprestada        ") return "26";
+  else if (uid == "04-B9-66-52-DA-61-80") return "27";
+  else if (uid == "04-B6-67-52-DA-61-80") return "28";
+  else if (uid == "04-49-6C-52-DA-61-80") return "29";
+  else if (uid == "04-4D-6C-52-DA-61-80") return "30";
+  else if (uid == "04-95-6A-52-DA-61-80") return "31";
+  else if (uid == "04-41-6C-52-DA-61-80") return "32";
+  else if (uid == "04-30-6C-52-DA-61-80") return "33";
   else if (uid == "06-7D-6C-FA") return "1";
   else return "";
-}
+} 
 //----------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------
